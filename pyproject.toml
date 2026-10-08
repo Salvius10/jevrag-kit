@@ -1,0 +1,43 @@
+[project]
+name = "jevrag-kit"
+dynamic = ["version"]
+description = "Configurable JEV passage classifier, LLM layer, and claims checker for grounded, quote-verified answers."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.12",
+    "pyyaml>=6.0.1",
+    "typesafe-sdk>=0.7.2,<0.8",
+]
+
+[project.optional-dependencies]
+# The LLM layer speaks two wire protocols; install the SDK for the one your provider uses.
+anthropic = ["anthropic>=1.0,<2"]
+openai = ["openai>=1.55.3,<4"]
+all = ["anthropic>=1.0,<2", "openai>=1.55.3,<4"]
+
+[project.scripts]
+jevrag-kit = "jevrag_kit.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "anthropic>=1.0,<2",
+    "openai>=1.55.3,<4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/jevrag_kit/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jevrag_kit"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/jevrag_kit", "tests", "examples", "tools", "README.md", "CHANGELOG.md", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

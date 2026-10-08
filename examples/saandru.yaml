@@ -1,0 +1,25 @@
+# Saandru's configuration, expressed in jevrag-kit. Everything not listed keeps the default, and the
+# defaults are Saandru's thresholds.yaml v1 values, so this file only adds the passage's source_type
+# to what TypeSafe sees. tools/parity_saandru.py checks that jevrag-kit with this configuration makes
+# exactly the decisions Saandru's rag/ code makes.
+#
+# Saandru thresholds.yaml key -> jevrag-kit setting
+#   injection_max    -> classifier.rules.contains_prompt_injection.threshold
+#   contradicts_min  -> classifier.rules.contradicts_query_premise.threshold
+#   relevant_min     -> classifier.rules.is_relevant.threshold
+#   evidence_min     -> classifier.rules.contains_answer_evidence.threshold
+#   max_accepted     -> classifier.accept.limit
+#   max_conflicting  -> classifier.conflict.limit
+#   auto_accept      -> checker.auto_accept
+#   min_quote_chars  -> checker.min_quote_chars
+#   version          -> version
+
+version: 1
+
+classifier:
+  state_fields: [id, title, text, source_type]   # source_type comes from Passage.metadata
+
+llm:
+  # Saandru sends Claude requests through AIML API's Anthropic-compatible endpoint.
+  base_url: https://api.aimlapi.com
+  api_key_env: AIML_API_KEY
