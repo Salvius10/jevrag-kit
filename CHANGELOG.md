@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The README is now complete user documentation, with examples for every way to use and configure the package. Notes for maintainers moved to DEVELOPMENT.md.
+- `tests/test_readme.py` runs every README example, so the documentation stays correct.
+
 ## 0.1.0 (2026-10-08)
 
 First release, extracted from Saandru's `rag/score`, `rag/generate`, and `rag/verify`.
