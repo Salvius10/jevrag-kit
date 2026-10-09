@@ -25,6 +25,7 @@ jevrag-kit takes a question and the passages your search returned, and produces 
 - [Troubleshooting](#troubleshooting)
 - [Reference](#reference)
 - [Limitations](#limitations)
+- [Changing the models](#changing-the-models)
 
 ## How it works
 
@@ -800,5 +801,78 @@ def test_leave_question_is_answered_with_a_citation():
 - `jev-latest` is an alias that TypeSafe can move to a newer model, which can shift scores. Traces record the model per stage. Re-run a sweep after a model change.
 - Very small LLMs follow the claim format less reliably, which leads to more abstentions.
 - Calls are synchronous, with concurrent requests inside each stage. There is no async API and no streaming.
+- The passage classifier and the claims checker use TypeSafe models. Another TypeSafe model is a configuration change, but a model from another provider needs a small adapter in code (see [Changing the models](#changing-the-models)).
+
+## Changing the models
+
+### Another TypeSafe model
+
+The passage classifier and the claims checker call TypeSafe's System One models, and the model name is a setting. Switching between TypeSafe models needs no code:
+
+```yaml
+typesafe:
+  model: jev-preview  # used by both the passage classifier and the claims checker
+```
+
+Each stage can also use its own model:
+
+```yaml
+classifier:
+  model: jev-preview  # the passage classifier only
+checker:
+  model: jev-latest   # the claims checker only
+```
+
+Which models you can use depends on your TypeSafe account; `typesafe_sdk.TypeSafeClient().models.list()` lists them. After switching:
+
+1. Run `jevrag-kit doctor --config jev.yaml --env-file .env` to confirm that the model answers both kinds of question jevrag-kit asks: the yes/no questions about passages, and the three-way choice about claims.
+2. Re-tune the thresholds. A different model produces different scores, so collect traces with the new model and compare settings with `jevrag-kit sweep` (see [Tuning thresholds](#tuning-thresholds)).
+3. Increase `version` in `jev.yaml`. Each trace also records the model that each stage used.
+
+### A model from another provider
+
+To use a model that TypeSafe doesn't serve, write a small adapter for each stage and build the engine with them. The engine accepts any object that has the right method:
+
+```python
+from jevrag_kit import Engine, PassageScores, RelationResult, build_generator, load_config
+
+
+class OtherScorer:
+    """Replaces the TypeSafe passage classifier."""
+
+    model = "other-model"  # recorded in traces
+
+    def __init__(self, config):
+        self.questions = config.classifier.questions  # the questions from jev.yaml
+
+    def score(self, query, passage):
+        # A probability from 0 to 1 for every question, for example {"is_relevant": 0.92, ...}
+        probabilities = other_api.ask(query, passage.text, self.questions)
+        return PassageScores(scores=probabilities)
+
+
+class OtherVerifier:
+    """Replaces the TypeSafe claims check."""
+
+    model = "other-model"
+
+    def relation(self, claim, section):
+        # Whether the passage text `section` supports, contradicts, or says nothing about `claim`
+        label, confidence, probabilities = other_api.judge(claim, section)
+        return RelationResult(choice=label, probabilities=probabilities, confidence=confidence)
+
+
+config = load_config("jev.yaml")
+engine = Engine(OtherScorer(config), build_generator(config), OtherVerifier(), config)
+```
+
+`other_api` stands for the other provider's client. The adapters must follow these rules:
+
+- **`score`** returns a probability between 0 and 1 for every question in `classifier.questions`. If a question the rules need is missing, the run stops with an error naming it. Each question has `instructions`, `true_means`, and `false_means` you can use to build the request. Your rules compare these numbers with their thresholds, so the probabilities should be calibrated. A model that only answers yes or no can return 1.0 and 0.0, but tuning then becomes coarse.
+- **`relation`** returns a `choice` (`supports`, `contradicts`, or `says_nothing`), the probability of each choice, and the `confidence` of the chosen one. A supported claim ships when `confidence` reaches `checker.auto_accept`.
+- **Both methods are called from several threads at once**, up to `classifier.workers` and `checker.workers` at a time (4 by default). Make them safe to call concurrently, or set both settings to 1.
+- **Errors are handled for you.** A passage whose `score` raises an error is dropped with reason `score_failed`, and a claim whose `relation` raises an error is dropped. To have a temporary failure retried with backoff, raise `jevrag_kit.classifier.TransientError` from `score`.
+
+Everything else works unchanged: your questions, rules, and thresholds, the LLM layer, the release policy, traces, and `jevrag-kit sweep`. `Engine.from_config`, `jevrag-kit doctor`, and `jevrag-kit try` always use TypeSafe, so with your own adapters, build the engine in code as shown above.
 
 Maintaining jevrag-kit: see [DEVELOPMENT.md](DEVELOPMENT.md). Version history: [CHANGELOG.md](CHANGELOG.md).

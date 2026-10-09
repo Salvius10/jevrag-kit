@@ -86,6 +86,23 @@ def call_my_model(text: str) -> str:
     return json.dumps({"insufficient": not claims, "missing": None if claims else "nothing", "claims": claims})
 
 
+class OtherAPI:
+    """The README's placeholder for "the other provider's client" used by its adapter example."""
+
+    GOOD = {"is_relevant": 0.9, "contains_answer_evidence": 0.9, "contradicts_query_premise": 0.05, "contains_prompt_injection": 0.02}
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def ask(self, query, text, questions):
+        self.calls.append("ask")
+        return {key: self.GOOD.get(key, 0.5) for key in questions}
+
+    def judge(self, claim, section):
+        self.calls.append("judge")
+        return "supports", 0.95, {"supports": 0.95, "contradicts": 0.03, "says_nothing": 0.02}
+
+
 # --- the tests ---------------------------------------------------------------------------------
 
 
@@ -147,8 +164,10 @@ def test_python_examples_run_in_order(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(Engine, "from_config", classmethod(doc_engine))
     monkeypatch.setattr(jevrag_kit, "build_scorer", lambda config, **kw: DocScorer(load_config(config)))
     monkeypatch.setattr(jevrag_kit, "build_verifier", lambda config, **kw: FakeVerifier())
+    monkeypatch.setattr(jevrag_kit, "build_generator", lambda config, **kw: DocGenerator())
 
-    namespace: dict = {"__name__": "readme", "call_my_model": call_my_model}
+    other_api = OtherAPI()
+    namespace: dict = {"__name__": "readme", "call_my_model": call_my_model, "other_api": other_api}
     for number, code in enumerate(blocks("python"), start=1):
         before = set(namespace)
         exec(compile(code, f"README.md python block {number}", "exec"), namespace)
@@ -163,3 +182,9 @@ def test_python_examples_run_in_order(tmp_path, monkeypatch, capsys):
     assert (tmp_path / "traces.jsonl").read_text(encoding="utf-8").strip()
     draft = namespace["MyModel"]().generate(build_prompt("q", namespace["passages"], []))
     assert [c.passage_id for c in draft.claims] == [namespace["passages"][0].id]
+
+    # The "another provider" adapters answer a question end to end, through both adapters.
+    adapted = namespace["engine"].run("How many days of annual leave can I carry over?", namespace["passages"])
+    assert adapted.answer.status == "answered"
+    assert "ask" in other_api.calls and "judge" in other_api.calls
+    assert adapted.trace["usage"]["score"]["model"] == adapted.trace["usage"]["verify"]["model"] == "other-model"
